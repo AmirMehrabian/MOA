@@ -239,9 +239,8 @@ def reconstruct_path(goal_label: dict) -> list:
         path.append(current["node"])
         current = current["parent"]
 
-    path.reverse()   # we built it backwards, flip it
+    path.reverse()  # we built it backwards, flip it
     return path
-
 
 
 def run_algorithm1_with_paths(start_node: tuple,
@@ -276,7 +275,7 @@ def run_algorithm1_with_paths(start_node: tuple,
     print(f"Grid: {grid_rows} rows × {grid_cols} cols\n")
     c = 0
     while OPEN:
-        c = c+1
+        c = c + 1
         print(c)
         *_, current = heapq.heappop(OPEN)
         node = current["node"]
@@ -349,3 +348,58 @@ def run_algorithm1_with_paths(start_node: tuple,
         "expansions": expansions,
     }
 
+
+def find_goal(grid_jam_pwr: np.ndarray,
+              obstacles: np.ndarray,
+              start: tuple,
+              d_0: float) -> tuple:
+    """
+    Find the best goal cell within distance d_0 (in cells) from start.
+
+    Steps
+    -----
+    1. Keep only cells within euclidean distance d_0 from start.
+    2. Remove obstacle cells.
+    3. Among remaining cells find the minimum jamming power.
+    4. Among cells at that minimum, pick the closest one to start.
+
+    Parameters
+    ----------
+    grid_jam_pwr : (rows, cols) normalised jammer cost [0, 1]
+    obstacles    : (rows, cols) bool
+    start        : (col, row) start node
+    d_0          : maximum distance in cells from start to goal
+
+    Returns
+    -------
+    (col, row) of the selected goal
+    """
+    rows, cols = grid_jam_pwr.shape
+    start_col, start_row = start
+
+    # Distance from start to every cell
+    col_idx, row_idx = np.meshgrid(np.arange(cols), np.arange(rows))
+    dist_from_start = np.sqrt((col_idx - start_col) ** 2 +
+                              (row_idx - start_row) ** 2)
+
+    # Valid: within range and not an obstacle
+    valid = (dist_from_start <= d_0) & (~obstacles)
+
+    if not valid.any():
+        raise ValueError(f"No valid goal found within d_0={d_0} cells of {start}.")
+
+    # Minimum jamming among valid cells
+    jam_valid = np.where(valid, grid_jam_pwr, np.inf)
+    min_jam = jam_valid.min()
+
+    # Among cells at minimum jamming, pick closest to start
+    at_min_jam = valid & (grid_jam_pwr == min_jam)
+    dist_at_min = np.where(at_min_jam, dist_from_start, np.inf)
+    best_idx = np.argmin(dist_at_min)
+    goal_row, goal_col = np.unravel_index(best_idx, (rows, cols))
+
+    goal = (int(goal_col), int(goal_row))
+    print(f"[find_goal]  Goal: {goal}  "
+          f"jam={min_jam:.3f}  "
+          f"dist_from_start={dist_from_start[goal_row, goal_col]:.1f} cells")
+    return goal

@@ -12,7 +12,9 @@ COLS = int(np.floor((X_MAX - X_MIN) / CELL_SIZE))  # = 93
 ROWS = int(np.floor((Y_MAX - Y_MIN) / CELL_SIZE))
 
 FRIENDLY_POS = [0.5, 0.0, 2.0]
-JAMMER_POS = [-60.5, 80.0, 2.0]
+JAMMER_POS = [-90.5, -80.0, 2.0]
+
+START = (0, 1)
 
 SOLVER_CFG = dict(
     max_depth=5,
@@ -22,3 +24,16 @@ SOLVER_CFG = dict(
     orientation=[0, 0, 0],
     center=[CENTER_X, CENTER_Y , 0],  # CENTER_X, CENTER_Y
 )
+
+
+config_dict = {
+    # Number of antennas, sensing nodes (SN), and jamming nodes (JN)
+    "num_jn": 1,
+    "num_sn": 4,
+    # Signal-to-noise ratios
+    "snr_tn": 10,  # in dB
+    "snr_jn": 20,  # in dB
+    "num_pilot_symbols": 20, #10,#10, #20,
+    "num_data_symbols": 500, #250,#250,#500,
+
+}
