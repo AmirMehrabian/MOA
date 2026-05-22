@@ -1,8 +1,9 @@
+import matplotlib.pyplot as plt
 import numpy as np
 
 from RadioMap import build_radio_maps
 from obstacles import make_obstacle_grid
-from path_finding_functions import run_algorithm1_with_paths, find_goal
+from path_finding_functions import run_algorithm1_with_paths, find_goal, cell_to_position, position_to_cell
 from plot_functions import plot_grid_with_paths, plot_jamming_heatmap, plot_deficit_heatmap, plot_pareto_front
 from config import *
 
@@ -15,8 +16,6 @@ if __name__ == "__main__":
     # Grid is 5 rows × 5 cols
     # node convention: (col, row)  →  col=x, row=y
     # start = (0,4) bottom-left    goal = (4,0) top-right
-
-
 
     maps = build_radio_maps()
 
@@ -34,15 +33,15 @@ if __name__ == "__main__":
 
     GOAL = find_goal(grid_jam_pwr,
                      obstacles,
-                     START, 1000/CELL_SIZE)
+                     START, 200 / CELL_SIZE)
     print(f"GOAL found at {GOAL}")
-    GOAL = (36, 29)
+    # GOAL = (36, 29)
     # ── Heuristic maps for objectives 2 and 3 ────────────────────────────────────
     Pj_goal = grid_jam_pwr[GOAL[1], GOAL[0]]
     Pd_goal = grid_fav_deficit[GOAL[1], GOAL[0]]
 
-    h2_map = np.maximum(0, Pj_goal - grid_jam_pwr)
-    h3_map = np.maximum(0, Pd_goal - grid_fav_deficit)
+    h2_map = np.maximum(0, grid_jam_pwr - Pj_goal)
+    h3_map = np.maximum(0, grid_fav_deficit - Pd_goal)
     # Obstacle map  (row, col indexing for numpy)
     # True = blocked,  matches the drawn grid: (2,1) and (1,3)
     # obstacles = np.zeros((ROWS, COLS), dtype=bool)
@@ -69,13 +68,13 @@ if __name__ == "__main__":
     # #     [9, 8, 6, 4, 2],  # row 4
     # # # ], dtype=float)
     #
-    #grid_x, grid_y = ROWS, COLS
+    # grid_x, grid_y = ROWS, COLS
     # grid_jam_pwr = np.random.rand(grid_x, grid_y)
-    #grid_jam_pwr = np.zeros((grid_x, grid_y))
+    # grid_jam_pwr = np.zeros((grid_x, grid_y))
     # #grid_jam_pwr[0:5, 0:5] = x
     # #grid_jam_pwr[45:50, 45:50] = x
     #
-    #grid_fav_deficit = np.zeros((ROWS, COLS))  #
+    # grid_fav_deficit = np.zeros((ROWS, COLS))  #
     # #grid_fav_deficit = np.random.rand(grid_x, grid_y)
     # grid_obsticle = np.random.randint(2, size=(grid_x, grid_y))
     #
@@ -104,7 +103,19 @@ if __name__ == "__main__":
         print(f"Cost: dist={cost[0]:.2f}  jam={cost[1]:.2f}  deficit={cost[2]:.2f}")
         print(f"Path: {' → '.join(str(n) for n in path)}")
 
+        for col, row in path:
+            print(cell_to_position(col, row, CELL_SIZE, origin_x, origin_y, rx_height=1.5), end='->')
+        print()
+        for col, row in path:
+            x, y, h = cell_to_position(col, row, CELL_SIZE, origin_x, origin_y, rx_height=1.5)
+            print(position_to_cell(x, y, CELL_SIZE, origin_x, origin_y), end='->')
+        print()
+
 plot_grid_with_paths(results, obstacles, ROWS, COLS, START, GOAL)
 plot_jamming_heatmap(grid_jam_pwr, obstacles, ROWS, COLS, START, GOAL)
 plot_deficit_heatmap(grid_fav_deficit, obstacles, ROWS, COLS, START, GOAL)
 plot_pareto_front(results)
+plt.imshow(h2_map)
+plt.show()
+plt.imshow(h3_map)
+plt.show()

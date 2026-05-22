@@ -2,6 +2,8 @@ import numpy as np
 from scipy.special import j0
 from scipy.linalg import svd, null_space
 from scipy.stats import nakagami
+from config import config_dict
+from comm.channel_functions import get_sionna_channels
 
 
 def nakagami_channel(config_dict, a, b):
@@ -30,8 +32,11 @@ def pskdemod(signal, mod_order):
     return symbols.astype(int)
 
 
-def env_response(config_dict):
-    nb = config_dict["num_pilot_block"]
+def env_response(config_dict, channel_dict, scene, rx_world_pos):
+    solver = channel_dict["solver"]
+    rx = channel_dict["rx"]
+    tx_f_idx = channel_dict["tx_friendly_idx"]
+    tx_j_idx = channel_dict["tx_jammer_idx"]
     num_sn = config_dict["num_sn"]
     num_jn = config_dict["num_jn"]
     snr_tn = config_dict["snr_tn"]
@@ -39,19 +44,16 @@ def env_response(config_dict):
 
     num_pilot = config_dict["num_pilot_symbols"]
     num_data = config_dict["num_data_symbols"]
-    num_antennas = config_dict["num_antennas"]
+    noise_pow = config_dict["noise_power"]
 
-    noise_variance = -105 #dBm
+    noise_variance = db2pow(noise_pow - 30)  # dBm
 
     mod_order = 4
 
-
     i_complex = 1j  # imaginary unit
 
-
-
     amp_jn_signal = np.sqrt(db2pow(snr_jn - 30))
-    amp_tn_signal = np.sqrt(db2pow(snr_tn -30))
+    amp_tn_signal = np.sqrt(db2pow(snr_tn - 30))
 
     # Noise matrices (complex Gaussian)
     noise_matrix_p1 = np.sqrt(noise_variance / 2) * (
@@ -71,15 +73,13 @@ def env_response(config_dict):
                                rx_world_pos, config_dict)
     tn_chan_vec = h.reshape(-1, 1)
     # Channel realizations (assumed provided by nakagami_channel function)
-    #tn_chan_vec = nakagami_channel(config_dict, num_sn, 1)
+    # tn_chan_vec = nakagami_channel(config_dict, num_sn, 1)
 
     jamming_symbols_p1 = pskmod(np.random.randint(0, mod_order, size=num_pilot), mod_order).reshape(1, num_pilot)
     jamming_symbols_d = pskmod(np.random.randint(0, mod_order, size=num_data), mod_order).reshape(1, num_data)
     # jamming_symbols_p2 = pskmod(np.random.randint(0, mod_order, size=num_pilot), mod_order).reshape(1, num_pilot)
 
-    jn_chan_vec_p1 = nakagami_channel(config_dict, num_sn, 1)
-
-    solver, rx, tx_f_idx, tx_j_idx = init_channel_solver(scene, config_dict)
+    # solver, rx, tx_f_idx, tx_j_idx = init_channel_solver(scene, config_dict)
 
     # Inside loop at each node position
 
@@ -91,26 +91,13 @@ def env_response(config_dict):
             amp_jn_signal * jn_chan_mat_p1 @ np.diag(jamming_symbols_p1.reshape(-1))) + noise_matrix_p1  # Pilot 1
     sn_rx_mat_d = (amp_tn_signal * tn_chan_vec @ mod_data_symbols) + (
             amp_jn_signal * jn_chan_mat_d @ np.diag(jamming_symbols_d.reshape(-1))) + noise_matrix_d  # Data
-    # sn_rx_mat_p2 = (amp_tn_signal * tn_chan_vec @ mod_pilot_symbols) + (
-    #         amp_jn_signal * jn_chan_mat_p2 @ np.diag(jamming_symbols_p2.reshape(-1))) + noise_matrix_p2  # Next
-    # pilot
-
-    # Control Channel
-    # fc_chan_mat = nakagami_channel(config_dict, num_antennas, num_sn)
-    # fc_noise_mat_p1 = np.sqrt(noise_variance / 2) * (
-    #         np.random.randn(num_antennas, num_pilot) + i_complex * np.random.randn(num_antennas, num_pilot))
-    # fc_noise_mat_d = np.sqrt(noise_variance / 2) * (
-    #         np.random.randn(num_antennas, data_block_length) + i_complex * np.random.randn(num_antennas,
-    #                                                                                        data_block_length))
-    # fc_noise_mat_p2 = np.sqrt(noise_variance / 2) * (
-    #         np.random.randn(num_antennas, num_pilot) + i_complex * np.random.randn(num_antennas, num_pilot))
 
     fc_rx_mat_p1 = sn_rx_mat_p1
-    fc_rx_mat_d =  sn_rx_mat_d
+    fc_rx_mat_d = sn_rx_mat_d
     # Least squares equalization of channel matrix
 
-    est_sn_rx_mat_p1 =  fc_rx_mat_p1
-    est_sn_rx_mat_d =  fc_rx_mat_d
+    est_sn_rx_mat_p1 = fc_rx_mat_p1
+    est_sn_rx_mat_d = fc_rx_mat_d
 
     # Compute null space for mod_pilot_symbols (treat mod_pilot_symbols as a 1 x num_pilot row vector)
     pilots_perp_mat = null_space(mod_pilot_symbols)
@@ -118,36 +105,41 @@ def env_response(config_dict):
     # Estimated jammer signal (projecting est_sn_rx_mat_p1 onto the null space)
     est_jn_signal_p1 = est_sn_rx_mat_p1 @ pilots_perp_mat
 
-    # Calculate jammer power (using Frobenius norm)
-    #power_jam = np.linalg.norm(est_jn_signal_p1, 'fro') ** 2 / (np.prod(est_jn_signal_p1.shape))
-    #power_jam_db = pow2db(power_jam)
-
     # SVD to extract dominant components of estimated jammer channel
     u_mat_p1, _, _ = svd(est_jn_signal_p1)
     est_jn_chan_vec_p1 = u_mat_p1[:, 0]
 
-
-  # Compute null space of the row vector of est_jn_chan_vec_p1
+    # Compute null space of the row vector of est_jn_chan_vec_p1
 
     chan_perp_mat = np.conj(u_mat_p1[:, num_jn:].T)
+    chan_no_mitigation_mat = np.eye(num_sn)  # Identity matrix for no mitigation
 
     rx_mat_canceled_jam = chan_perp_mat @ est_sn_rx_mat_p1
-    #power_signal_db = pow2db(np.linalg.norm(rx_mat_canceled_jam, 'fro') ** 2 / (np.prod(rx_mat_canceled_jam.shape)))
+    rx_mat_no_mitigation = chan_no_mitigation_mat @ est_sn_rx_mat_p1
 
     est_tn_chan_vec = (rx_mat_canceled_jam @ np.conj(mod_pilot_symbols.T) / (
             np.linalg.norm(mod_pilot_symbols) ** 2)) / amp_tn_signal
 
+    est_tn_chan_no_mitigation = (rx_mat_no_mitigation @ np.conj(mod_pilot_symbols.T) / (
+            np.linalg.norm(mod_pilot_symbols) ** 2)) / amp_tn_signal
+
     est_data_symbol_vec = (est_tn_chan_vec.conj().T / (np.linalg.norm(est_tn_chan_vec) ** 2)) @ (
             chan_perp_mat @ est_sn_rx_mat_d)
+    est_data_symbol_no_mitigation = (est_tn_chan_no_mitigation.conj().T / (
+                np.linalg.norm(est_tn_chan_no_mitigation) ** 2)) @ (
+            chan_no_mitigation_mat @ est_sn_rx_mat_d)
 
     demod_est_data_symbol_vec = pskdemod(est_data_symbol_vec, mod_order)
+    demod_est_data_symbol_no_mitigation = pskdemod(est_data_symbol_no_mitigation, mod_order)
 
     # Count correctly received symbols:
     errors = np.sum(demod_est_data_symbol_vec != data_symbols)
     num_correct_sym = num_data - errors
 
+    errors_no_mitigation = np.sum(demod_est_data_symbol_no_mitigation != data_symbols)
+    num_correct_sym_no_mitigation = num_data - errors_no_mitigation
 
-    return errors, num_correct_sym
+    return errors, num_correct_sym, errors_no_mitigation, num_correct_sym_no_mitigation
 #
 #
 # def env_response_with_mitigation(config_dict, mitigation=False):

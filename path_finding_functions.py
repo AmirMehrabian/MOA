@@ -403,3 +403,17 @@ def find_goal(grid_jam_pwr: np.ndarray,
           f"jam={min_jam:.3f}  "
           f"dist_from_start={dist_from_start[goal_row, goal_col]:.1f} cells")
     return goal
+
+
+def cell_to_position(col, row, CELL_SIZE, _origin_x, _origin_y, rx_height=1.5):
+    """Grid cell (col, row) → Sionna world position (x, y, z)."""
+    x = _origin_x + (col + 0.5) * CELL_SIZE
+    y = _origin_y + (row + 0.5) * CELL_SIZE
+    return x, y, rx_height
+
+
+def position_to_cell(x, y, CELL_SIZE, _origin_x, _origin_y):
+    """Sionna world position (x, y) → grid cell (col, row)."""
+    col = int((x - _origin_x) / CELL_SIZE)
+    row = int((y - _origin_y) / CELL_SIZE)
+    return col, row
