@@ -31,6 +31,8 @@ if __name__ == "__main__":
         size=[X_MAX - X_MIN, Y_MAX - Y_MIN],
     )
 
+    START = position_to_cell(RX_POS[0], RX_POS[1], CELL_SIZE, origin_x, origin_y)
+    print(f"START cell is {START}")
     GOAL = find_goal(grid_jam_pwr,
                      obstacles,
                      START, 200 / CELL_SIZE)
@@ -111,11 +113,27 @@ if __name__ == "__main__":
             print(position_to_cell(x, y, CELL_SIZE, origin_x, origin_y), end='->')
         print()
 
+print("*"*50)
+for label, pos in [("TX (friendly)", FRIENDLY_POS),
+                   ("JN (jammer)", JAMMER_POS),
+                   ("RX", RX_POS)]:
+    col, row = position_to_cell(pos[0], pos[1], CELL_SIZE, origin_x, origin_y)
+    x_recal, y_recal, z_recal = cell_to_position(col, row, CELL_SIZE, origin_x, origin_y, rx_height=1.5)
+
+    print(f"{label}")
+    print(f"  real   : x={pos[0]:8.2f}  y={pos[1]:8.2f}  z={pos[2]:.2f}")
+    print(f"  cell   : col={col:3d}  row={row:3d}")
+    print(f"  recal  : x={x_recal:8.2f}  y={y_recal:8.2f}  z={z_recal:.2f}")
+    print(f"  error  : dx={abs(pos[0] - x_recal):.3f} m  dy={abs(pos[1] - y_recal):.3f} m")
+    print()
+
 plot_grid_with_paths(results, obstacles, ROWS, COLS, START, GOAL)
 plot_jamming_heatmap(grid_jam_pwr, obstacles, ROWS, COLS, START, GOAL)
 plot_deficit_heatmap(grid_fav_deficit, obstacles, ROWS, COLS, START, GOAL)
 plot_pareto_front(results)
 plt.imshow(h2_map)
+plt.title("Heuristic h2: Jamming Power")
 plt.show()
 plt.imshow(h3_map)
+plt.title("Heuristic h2: Defecit friendly Power")
 plt.show()

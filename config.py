@@ -17,14 +17,14 @@ origin_y = CENTER_Y - (Y_MAX - Y_MIN) / 2   # = Y_MIN
 
 FRIENDLY_POS = [0.5, 0.0, 2.0]
 JAMMER_POS = [-90.5, -60.0, 2.0]
-RX_POS = [0.5, 20.0, 2.0]
+RX_POS = [-20.5, -53.0, 2.0]
 
 RX_Velocity = [0.0, 5.0, 0.0]
 
 rx_tn_d = int(np.linalg.norm(np.array(RX_POS) - np.array(FRIENDLY_POS)))
 rx_jn_d = int(np.linalg.norm(np.array(RX_POS) - np.array(JAMMER_POS)))
 
-START = (20, 1)
+#START = (20, 1)
 
 SOLVER_CFG = dict(
     max_depth=5,
