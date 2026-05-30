@@ -3,6 +3,8 @@ import numpy as np
 
 from RadioMap import build_radio_maps
 from obstacles import make_obstacle_grid
+from comm.channel_functions import init_channel_solver
+from env_functions import env_response
 from path_finding_functions import run_algorithm1_with_paths, find_goal, cell_to_position, position_to_cell
 from plot_functions import plot_grid_with_paths, plot_jamming_heatmap, plot_deficit_heatmap, plot_pareto_front
 from config import *
@@ -44,47 +46,7 @@ if __name__ == "__main__":
 
     h2_map = np.maximum(0, grid_jam_pwr - Pj_goal)
     h3_map = np.maximum(0, grid_fav_deficit - Pd_goal)
-    # Obstacle map  (row, col indexing for numpy)
-    # True = blocked,  matches the drawn grid: (2,1) and (1,3)
-    # obstacles = np.zeros((ROWS, COLS), dtype=bool)
-    # obstacles[1, 2] = True  # cell (col=2, row=1)
-    # obstacles[3, 1] = True  # cell (col=1, row=3)
-    #
-    # # Jamming power grid  (row, col)
-    # # Higher = more jammed = worse
-    # x = np.array([
-    #     [2, 3, 5, 3, 1],  # row 0
-    #     [3, 5, 0, 4, 2],  # row 1  (0 = obstacle, never visited)
-    #     [4, 7, 9, 5, 3],  # row 2
-    #     [3, 0, 6, 4, 2],  # row 3  (0 = obstacle)
-    #     [2, 3, 5, 3, 2],  # row 4
-    # ], dtype=float)
-    #
-    # # Friendly power deficit grid  (row, col)
-    # # Higher = less friendly coverage = worse
-    # # x = np.array([
-    # #     [8, 6, 5, 3, 1],  # row 0
-    # #     [7, 6, 0, 3, 2],  # row 1
-    # #     [7, 6, 5, 4, 2],  # row 2
-    # #     [8, 0, 5, 4, 3],  # row 3
-    # #     [9, 8, 6, 4, 2],  # row 4
-    # # # ], dtype=float)
-    #
-    # grid_x, grid_y = ROWS, COLS
-    # grid_jam_pwr = np.random.rand(grid_x, grid_y)
-    # grid_jam_pwr = np.zeros((grid_x, grid_y))
-    # #grid_jam_pwr[0:5, 0:5] = x
-    # #grid_jam_pwr[45:50, 45:50] = x
-    #
-    # grid_fav_deficit = np.zeros((ROWS, COLS))  #
-    # #grid_fav_deficit = np.random.rand(grid_x, grid_y)
-    # grid_obsticle = np.random.randint(2, size=(grid_x, grid_y))
-    #
-    # obstacles = np.zeros((grid_x, grid_y), dtype=bool)
-    # obstacles[1, 2] = True  # cell (col=2, row=1)
-    # obstacles[3, 1] = True  # cell (col=1, row=3)
 
-    # Run the search
     results = run_algorithm1_with_paths(
         start_node=START,
         goal_node=GOAL,
@@ -112,8 +74,84 @@ if __name__ == "__main__":
             x, y, h = cell_to_position(col, row, CELL_SIZE, origin_x, origin_y, rx_height=1.5)
             print(position_to_cell(x, y, CELL_SIZE, origin_x, origin_y), end='->')
         print()
+# ── build once, reuse across all metrics ─────────────────────────────────────
+rm = build_radio_maps()
+channel_dict = init_channel_solver(rm["scene"], config_dict)
 
-print("*"*50)
+metrics = ["distance", "jamming", "deficit"]
+num_iter = 5
+num_sym = config_dict["num_data_symbols"]
+
+all_error = []
+all_error_no_mit = []
+all_labels = []
+
+for i, metric in enumerate(metrics):
+    costs = [cost[i] for cost in results["pareto_costs"]]
+    best_idx = int(np.argmin(costs))
+    best_path = results["pareto_paths"][best_idx]
+    best_cost = results["pareto_costs"][best_idx]
+    print(f"\nBest by {metric}: dist={best_cost[0]:.2f}  jam={best_cost[1]:.2f}  deficit={best_cost[2]:.2f}")
+
+    error_vec = []  # one entry per cell on the path
+    error_vec_no_mit = []
+
+    for col, row in best_path:
+        x, y, h = cell_to_position(col, row, CELL_SIZE, origin_x, origin_y, rx_height=1.5)  # uses simplified version
+
+        cell_error = 0.0
+        cell_error_no_mit = 0.0
+
+        for ii in range(num_iter):
+            z = env_response(config_dict, channel_dict, rm["scene"], rx_world_pos=(x, y, h))
+            cell_error += z[0]
+            cell_error_no_mit += z[2]
+
+        # average over iterations, normalise by num_sym
+        error_vec.append(cell_error / (num_iter * num_sym))
+        error_vec_no_mit.append(cell_error_no_mit / (num_iter * num_sym))
+
+    all_error.append(error_vec)
+    all_error_no_mit.append(error_vec_no_mit)
+    all_labels.append(metric)
+
+    print(f"  BER along path (mitigated)    : {error_vec}")
+    print(f"  BER along path (no mitigation): {error_vec_no_mit}")
+    print(f"  Mean BER (mit)    : {np.mean(error_vec):.4f}")
+    print(f"  Mean BER (no mit) : {np.mean(error_vec_no_mit):.4f}")
+fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+for i, ax in enumerate(axes):
+    steps = range(len(all_error[i]))
+    ax.plot(steps, all_error[i], lw=2, marker="o", markersize=3, label="mitigated")
+    ax.plot(steps, all_error_no_mit[i], lw=2, marker="s", markersize=3, label="no mitigation", linestyle="--")
+    ax.set_title(f"Best by {all_labels[i]}", fontsize=10)
+    ax.set_xlabel("Path step")
+    ax.set_ylabel("BER")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+plt.suptitle("BER along best path — per objective", fontsize=12)
+plt.tight_layout()
+
+
+# ── Plot 2: Mean BER bar chart ────────────────────────────────────────────────
+fig2, ax2 = plt.subplots(figsize=(7, 4))
+x = np.arange(len(metrics))
+width = 0.35
+
+ax2.bar(x - width / 2, [np.mean(e) for e in all_error], width, label="mitigated")
+ax2.bar(x + width / 2, [np.mean(e) for e in all_error_no_mit], width, label="no mitigation")
+ax2.set_xticks(x)
+ax2.set_xticklabels([f"best by\n{m}" for m in all_labels])
+ax2.set_ylabel("Mean BER")
+ax2.set_title("Mean BER — best path per objective")
+ax2.legend()
+ax2.grid(True, alpha=0.3, axis="y")
+plt.tight_layout()
+
+
+print("*" * 50)
 for label, pos in [("TX (friendly)", FRIENDLY_POS),
                    ("JN (jammer)", JAMMER_POS),
                    ("RX", RX_POS)]:
@@ -133,7 +171,7 @@ plot_deficit_heatmap(grid_fav_deficit, obstacles, ROWS, COLS, START, GOAL)
 plot_pareto_front(results)
 plt.imshow(h2_map)
 plt.title("Heuristic h2: Jamming Power")
-plt.show()
+
 plt.imshow(h3_map)
 plt.title("Heuristic h2: Defecit friendly Power")
 plt.show()
